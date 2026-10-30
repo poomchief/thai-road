@@ -66,19 +66,21 @@ const CITIES = CITY.map(([id, name, lat, lon, reg, major]) => ({ id, name, lat, 
 const map = L.map('map', { zoomControl: true, maxZoom: 20 }).setView([13.4, 101], 6);
 const OSM_ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 const esri = s => `https://server.arcgisonline.com/ArcGIS/rest/services/${s}/MapServer/tile/{z}/{y}/{x}`;
-// basemaps: retina street map by default; satellite and terrain for more ground detail
+// basemaps: all keyless (CARTO now requires an API key for unregistered sites)
+const osm = (opt = {}) => L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, maxNativeZoom: 19, className: 'basemap', attribution: OSM_ATTR, ...opt });
 const BASE = {
-  'ถนน ละเอียดสูง': L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    { subdomains: 'abcd', maxZoom: 20, className: 'basemap', attribution: OSM_ATTR + ' © <a href="https://carto.com/attributions">CARTO</a>' }),
+  'ถนน (ชื่อภาษาไทย)': osm(),
+  // detectRetina loads one zoom level deeper on retina screens: more streets and places, smaller text
+  'ถนน ละเอียดสูง': osm({ detectRetina: true }),
   'ดาวเทียม + ชื่อสถานที่': L.layerGroup([
     L.tileLayer(esri('World_Imagery'), { maxZoom: 20, maxNativeZoom: 19, attribution: 'ภาพดาวเทียม © Esri, Maxar, Earthstar Geographics' }),
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 20 })]),
+    L.tileLayer(esri('Reference/World_Transportation'), { maxZoom: 20, maxNativeZoom: 19 }),
+    L.tileLayer(esri('Reference/World_Boundaries_and_Places'), { maxZoom: 20, maxNativeZoom: 19 })]),
   'ภูมิประเทศ': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-    { subdomains: 'abc', maxZoom: 20, maxNativeZoom: 17, className: 'basemap', attribution: OSM_ATTR + ', SRTM | © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)' }),
-  'OpenStreetMap': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, maxNativeZoom: 19, className: 'basemap', attribution: OSM_ATTR })
+    { subdomains: 'abc', maxZoom: 20, maxNativeZoom: 17, className: 'basemap', attribution: OSM_ATTR + ', SRTM | © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)' })
 };
 const baseName = store.get('thai-road-base');
-(BASE[baseName] || BASE['ถนน ละเอียดสูง']).addTo(map);
+(BASE[baseName] || BASE['ถนน (ชื่อภาษาไทย)']).addTo(map);
 L.control.layers(BASE, null, { position: 'topleft' }).addTo(map);
 L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 map.on('baselayerchange', e => store.set('thai-road-base', e.name));
