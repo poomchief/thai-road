@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ไทยเดินทาง</title>
+<meta name="description" content="วางเส้นทางทั่วประเทศไทย พร้อมเตือนฝนตกหนัก ความเสี่ยงน้ำท่วม และพยากรณ์อากาศตลอดเส้นทาง">
+<meta name="theme-color" content="#0d6b8f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ไทยเดินทาง">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <header class="brand">
+      <h1>ไทยเดินทาง</h1>
+      <span class="clock" id="clock"></span>
+    </header>
+
+    <section aria-labelledby="h-plan">
+      <h2 id="h-plan">วางแผนเส้นทาง</h2>
+      <div class="planner">
+        <div class="stack">
+          <div class="place">
+            <span class="dot a" aria-hidden="true"></span>
+            <input id="fromIn" type="text" autocomplete="off" placeholder="ต้นทาง: ค้นหาสถานที่" aria-label="ต้นทาง">
+            <ul class="sugg" id="fromSugg" hidden></ul>
+          </div>
+          <div class="place">
+            <span class="dot b" aria-hidden="true"></span>
+            <input id="toIn" type="text" autocomplete="off" placeholder="ปลายทาง: ค้นหาสถานที่" aria-label="ปลายทาง">
+            <ul class="sugg" id="toSugg" hidden></ul>
+          </div>
+        </div>
+        <button class="iconbtn" id="swap" title="สลับต้นทางและปลายทาง" aria-label="สลับต้นทางและปลายทาง">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4v16M7 4 3 8M7 4l4 4M17 20V4m0 16-4-4m4 4 4-4"/></svg>
+        </button>
+      </div>
+
+      <div class="home">
+        <div class="hh"><b>บ้านของฉัน</b><span class="note" id="homeInfo">ยังไม่ได้ตั้งตำแหน่ง</span></div>
+        <div class="row">
+          <button class="btn" id="gpsHome">ใช้ GPS ตอนนี้เป็นบ้าน</button>
+          <button class="btn" id="homePin" aria-pressed="false">ปักหมุดบนแผนที่</button>
+          <button class="btn" id="homeClear" hidden>ลบ</button>
+        </div>
+        <div class="row nowrap">
+          <input id="homeIn" type="text" placeholder="หรือวางพิกัด / ลิงก์ Google–Apple Maps" aria-label="พิกัดหรือลิงก์แผนที่ของบ้าน">
+          <button class="btn" id="homeSet">ตั้งค่า</button>
+        </div>
+        <p class="note">เก็บไว้ในเบราว์เซอร์นี้เท่านั้น ไม่ส่งขึ้นเซิร์ฟเวอร์</p>
+      </div>
+
+      <label class="toggle"><input type="checkbox" id="avoid" checked><span>หลีกเลี่ยงเส้นทางอันตรายอัตโนมัติ<small>เลือกเส้นทางที่เลี่ยงฝนตกหนัก ความเสี่ยงน้ำท่วม และเหตุบนถนน</small></span></label>
+      <label class="toggle"><input type="checkbox" id="simInc" checked><span>แสดงอุบัติเหตุและงานซ่อมถนนแบบจำลอง<small>ยังไม่มีแหล่งข้อมูลอุบัติเหตุแบบเปิดฟรี จุดเหล่านี้จึงเป็นการจำลอง</small></span></label>
+      <label class="toggle"><input type="checkbox" id="voice"><span>เสียงเตือนภาษาไทยระหว่างนำทาง</span></label>
+
+      <div class="row">
+        <button class="btn primary" id="findBtn">หาเส้นทาง</button>
+        <button class="btn" id="simBtn" disabled>จำลองการขับ</button>
+        <button class="btn" id="navBtn" disabled>นำทางด้วย GPS</button>
+        <div class="speed" id="speedBox" hidden><label for="spd">ความเร็วจำลอง</label>
+          <select id="spd"><option value="5">1 วิ = 5 นาที</option><option value="15" selected>1 วิ = 15 นาที</option><option value="40">1 วิ = 40 นาที</option></select></div>
+      </div>
+      <div id="status" class="status" role="status" hidden></div>
+
+      <div class="alts" id="alts"></div>
+
+      <div class="trip" id="trip" hidden>
+        <div class="stats">
+          <div class="stat"><b id="sDist">–</b><span>ระยะทาง</span></div>
+          <div class="stat"><b id="sTime">–</b><span>เวลาเดินทาง</span></div>
+          <div class="stat"><b id="sEta">–</b><span>ถึงประมาณ</span></div>
+        </div>
+        <div class="bar"><i id="prog"></i></div>
+        <details><summary>ขั้นตอนการขับ <span class="note" id="stepCount"></span></summary><ol class="steps" id="steps"></ol></details>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-alert">
+      <h2 id="h-alert">แจ้งเตือนบนเส้นทาง <small id="alertCount"></small></h2>
+      <div class="alerts" id="routeAlerts"><div class="empty">หาเส้นทางก่อน แล้วระบบจะตรวจฝน ความเสี่ยงน้ำท่วม และเหตุบนถนนตลอดเส้นทาง</div></div>
+    </section>
+
+    <section aria-labelledby="h-stay">
+      <h2 id="h-stay">ที่พักระหว่างทาง <small id="stayNote"></small></h2>
+      <div class="alerts" id="stays"><div class="empty">จะแสดงเมื่อมีเส้นทาง</div></div>
+    </section>
+
+    <section aria-labelledby="h-wx">
+      <h2 id="h-wx">พยากรณ์อากาศ <small>Open-Meteo · 5 วัน</small></h2>
+      <div class="chips" id="wxChips"></div>
+      <div id="wx"><div class="empty">จะแสดงเมื่อมีเส้นทาง</div></div>
+    </section>
+
+    <section class="contacts" aria-labelledby="h-help">
+      <h2 id="h-help">สายด่วนและแหล่งข้อมูลจริง</h2>
+      <div>กรมทางหลวง <a href="tel:1586"><b>1586</b></a> · ทางหลวงชนบท <a href="tel:1146"><b>1146</b></a> · ตำรวจทางหลวง <a href="tel:1193"><b>1193</b></a></div>
+      <div>ปภ. ภัยพิบัติและน้ำท่วม <a href="tel:1784"><b>1784</b></a> · เจ็บป่วยฉุกเฉิน <a href="tel:1669"><b>1669</b></a></div>
+      <div><a href="https://www.tmd.go.th" target="_blank" rel="noopener">กรมอุตุนิยมวิทยา</a> · <a href="https://traffic.longdo.com" target="_blank" rel="noopener">Longdo Traffic</a> · <a href="https://www.thaiwater.net" target="_blank" rel="noopener">ThaiWater สถานการณ์น้ำ</a></div>
+      <p class="note">แผนที่ © ผู้ร่วมพัฒนา OpenStreetMap, CARTO, Esri, OpenTopoMap · เส้นทางจาก OSRM · อากาศจาก Open-Meteo · เรดาร์ฝนจาก RainViewer
+      ความเสี่ยงน้ำท่วมประเมินจากปริมาณฝนพยากรณ์ ไม่ใช่รายงานน้ำท่วมจริง ก่อนเดินทางควรตรวจสอบกับหน่วยงานในพื้นที่</p>
+    </section>
+  </aside>
+
+  <main class="mapwrap" id="wrap">
+    <div id="map" aria-label="แผนที่"></div>
+    <div class="banner" id="banner" hidden></div>
+    <div class="ctrls">
+      <div class="grp">
+        <button id="locate" title="ตำแหน่งของฉัน" aria-label="ไปที่ตำแหน่งของฉัน"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+        <button id="follow" aria-pressed="true" title="ติดตามรถ" aria-label="ติดตามรถ"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 20 21l-8-4-8 4z"/></svg></button>
+        <button id="tRadar" aria-pressed="false" title="เรดาร์ฝน" aria-label="แสดงเรดาร์ฝน"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 15a4 4 0 1 1 1-7.9A5 5 0 0 1 18 9a3 3 0 0 1 0 6zM9 18l-1 3M13 18l-1 3M17 18l-1 3"/></svg></button>
+      </div>
+    </div>
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+  </main>
+</div>
+<script src="vendor/leaflet.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

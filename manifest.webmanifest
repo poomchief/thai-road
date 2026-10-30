@@ -1,0 +1,15 @@
+{
+  "name": "ไทยเดินทาง",
+  "short_name": "ไทยเดินทาง",
+  "description": "วางเส้นทางทั่วไทย เตือนฝนตกหนักและความเสี่ยงน้ำท่วม พร้อมพยากรณ์อากาศ",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f6f3",
+  "theme_color": "#0d6b8f",
+  "lang": "th",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
