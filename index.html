@@ -60,16 +60,21 @@
         <p class="note">เก็บไว้ในเบราว์เซอร์นี้เท่านั้น ไม่ส่งขึ้นเซิร์ฟเวอร์</p>
       </div>
 
-      <label class="toggle"><input type="checkbox" id="avoid" checked><span>หลีกเลี่ยงเส้นทางอันตรายอัตโนมัติ<small>เลือกเส้นทางที่เลี่ยงฝนตกหนัก ความเสี่ยงน้ำท่วม และเหตุบนถนน</small></span></label>
-      <label class="toggle"><input type="checkbox" id="simInc" checked><span>แสดงอุบัติเหตุและงานซ่อมถนนแบบจำลอง<small>ยังไม่มีแหล่งข้อมูลอุบัติเหตุแบบเปิดฟรี จุดเหล่านี้จึงเป็นการจำลอง</small></span></label>
+      <div class="home" id="ttBox">
+        <div class="hh"><b>ข้อมูลจราจรเรียลไทม์</b><span class="note" id="ttInfo">ยังไม่ได้เชื่อมต่อ</span></div>
+        <div class="row nowrap" id="ttForm">
+          <input id="ttKey" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="วาง API key ของ TomTom" aria-label="API key ของ TomTom">
+          <button class="btn" id="ttSave">เชื่อมต่อ</button>
+        </div>
+        <p class="note" id="ttHelp">อุบัติเหตุ รถติด ถนนปิด และเส้นทางที่คิดรถติด จาก TomTom สมัครฟรีที่ <a href="https://developer.tomtom.com/user/register" target="_blank" rel="noopener">developer.tomtom.com</a> แล้วคัดลอก API key มาวาง (ฟรีวันละ 2,500 ครั้ง) key เก็บในเครื่องนี้เท่านั้น</p>
+        <button class="btn" id="ttClear" hidden>ยกเลิกการเชื่อมต่อ</button>
+      </div>
+      <label class="toggle"><input type="checkbox" id="avoid" checked><span>หลีกเลี่ยงเส้นทางอันตรายอัตโนมัติ<small>เลือกเส้นทางที่เลี่ยงถนนปิด อุบัติเหตุ รถติด ฝนตกหนัก และความเสี่ยงน้ำท่วม และเปลี่ยนเส้นทางเองระหว่างนำทาง</small></span></label>
       <label class="toggle"><input type="checkbox" id="voice"><span>เสียงเตือนภาษาไทยระหว่างนำทาง</span></label>
 
       <div class="row">
         <button class="btn primary" id="findBtn">หาเส้นทาง</button>
-        <button class="btn" id="simBtn" disabled>จำลองการขับ</button>
         <button class="btn" id="navBtn" disabled>นำทางด้วย GPS</button>
-        <div class="speed" id="speedBox" hidden><label for="spd">ความเร็วจำลอง</label>
-          <select id="spd"><option value="5">1 วิ = 5 นาที</option><option value="15" selected>1 วิ = 15 นาที</option><option value="40">1 วิ = 40 นาที</option></select></div>
       </div>
       <div id="status" class="status" role="status" hidden></div>
 
@@ -119,7 +124,7 @@
       <div>กรมทางหลวง <a href="tel:1586"><b>1586</b></a> · ทางหลวงชนบท <a href="tel:1146"><b>1146</b></a> · ตำรวจทางหลวง <a href="tel:1193"><b>1193</b></a></div>
       <div>ปภ. ภัยพิบัติและน้ำท่วม <a href="tel:1784"><b>1784</b></a> · เจ็บป่วยฉุกเฉิน <a href="tel:1669"><b>1669</b></a></div>
       <div><a href="https://www.tmd.go.th" target="_blank" rel="noopener">กรมอุตุนิยมวิทยา</a> · <a href="https://traffic.longdo.com" target="_blank" rel="noopener">Longdo Traffic</a> · <a href="https://www.thaiwater.net" target="_blank" rel="noopener">ThaiWater สถานการณ์น้ำ</a></div>
-      <p class="note">แผนที่ © ผู้ร่วมพัฒนา OpenStreetMap, Esri, OpenTopoMap · เส้นทางจาก OSRM · อากาศจาก Open-Meteo · เรดาร์ฝนจาก RainViewer
+      <p class="note">แผนที่ © ผู้ร่วมพัฒนา OpenStreetMap, Esri, OpenTopoMap · เส้นทางและการจราจรจาก TomTom (เมื่อเชื่อมต่อ) หรือ OSRM · อากาศจาก Open-Meteo · เรดาร์ฝนจาก RainViewer
       ความเสี่ยงน้ำท่วมประเมินจากปริมาณฝนพยากรณ์ ไม่ใช่รายงานน้ำท่วมจริง ก่อนเดินทางควรตรวจสอบกับหน่วยงานในพื้นที่</p>
     </section>
   </aside>
@@ -133,6 +138,7 @@
         <button id="locate" title="ติดตามตำแหน่งสด" aria-label="ติดตามตำแหน่งสด" aria-pressed="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
         <button id="follow" aria-pressed="true" title="ติดตามรถ" aria-label="ติดตามรถ"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 20 21l-8-4-8 4z"/></svg></button>
         <button id="nearStay" title="ที่พักใกล้ฉัน" aria-label="ค้นที่พักใกล้ฉัน"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18V6M3 14h18v4M21 14v-1a3 3 0 0 0-3-3h-7v4"/><circle cx="7" cy="10.5" r="1.8"/></svg></button>
+        <button id="tTraffic" aria-pressed="false" title="สภาพการจราจร" aria-label="แสดงสภาพการจราจร"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="8" height="20" rx="3"/><circle cx="12" cy="7" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="17" r="1.6"/></svg></button>
         <button id="tRadar" aria-pressed="false" title="เรดาร์ฝน" aria-label="แสดงเรดาร์ฝน"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 15a4 4 0 1 1 1-7.9A5 5 0 0 1 18 9a3 3 0 0 1 0 6zM9 18l-1 3M13 18l-1 3M17 18l-1 3"/></svg></button>
       </div>
     </div>

@@ -26,7 +26,6 @@ async function getJSON(url, opt = {}, ms = 15000) {
   try { const r = await fetch(url, { ...opt, signal: c.signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); }
   finally { clearTimeout(t); }
 }
-function seeded(n) { let s = (n * 9301 + 49297) % 233280 || 1; return () => (s = (s * 9301 + 49297) % 233280) / 233280; }
 
 /* ---------- icons ---------- */
 const GLYPH = {
@@ -34,13 +33,17 @@ const GLYPH = {
   flood: '<path d="M5 10c2-2 3 2 5 0s3 2 5 0 3 2 4 0M5 15c2-2 3 2 5 0s3 2 5 0 3 2 4 0" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>',
   work: '<path d="M12 5 7 19h10z" fill="#fff"/>',
   rain: '<path d="M7 13a3.5 3.5 0 1 1 1-6.8A4.5 4.5 0 0 1 17 8a2.5 2.5 0 0 1 0 5z" fill="#fff"/><path d="M9 16l-1 3M13 16l-1 3M17 16l-1 3" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>',
+  jam: '<path d="M5 8h14M5 12h10M5 16h6" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>',
+  closed: '<rect x="5" y="10" width="14" height="4.5" rx="1" fill="#fff"/>',
+  danger: '<path d="M12 5 4 19h16z" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><path d="M12 10v4" stroke="#fff" stroke-width="2" stroke-linecap="round"/>',
   bed: '<path d="M3 18V6M3 14h18v4M21 14v-1a3 3 0 0 0-3-3h-7v4" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7" cy="10.5" r="1.8" fill="#fff"/>',
   home: '<path d="M3 11 12 3l9 8v10H3z" fill="var(--ok)" stroke="var(--route-casing)" stroke-width="2" stroke-linejoin="round"/><rect x="10" y="14" width="4" height="7" fill="var(--route-casing)"/>'
 };
 const icon = (t, s = 18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" aria-hidden="true">${GLYPH[t]}</svg>`;
 const TYPES = {
   accident: { label: 'อุบัติเหตุ', c: 'var(--danger)' }, work: { label: 'ซ่อมถนน', c: 'var(--warn)' },
-  flood: { label: 'เสี่ยงน้ำท่วม', c: 'var(--flood)' }, rain: { label: 'ฝนตกหนัก', c: 'var(--rain)' }
+  flood: { label: 'น้ำท่วม', c: 'var(--flood)' }, rain: { label: 'ฝนตกหนัก', c: 'var(--rain)' },
+  jam: { label: 'รถติด', c: 'var(--warn)' }, closed: { label: 'ปิดถนน', c: 'var(--danger)' }, danger: { label: 'อันตราย', c: 'var(--danger)' }
 };
 const WTXT = { 0: 'ท้องฟ้าแจ่มใส', 1: 'แจ่มใสเป็นส่วนใหญ่', 2: 'มีเมฆบางส่วน', 3: 'เมฆมาก', 45: 'หมอก', 48: 'หมอกเกาะ', 51: 'ฝนปรอย', 53: 'ฝนปรอย', 55: 'ฝนปรอยหนาแน่น',
   61: 'ฝนเล็กน้อย', 63: 'ฝนปานกลาง', 65: 'ฝนหนัก', 80: 'ฝนซู่', 81: 'ฝนซู่ปานกลาง', 82: 'ฝนซู่หนัก', 95: 'พายุฝนฟ้าคะนอง', 96: 'พายุฝนฟ้าคะนอง', 99: 'พายุฝนฟ้าคะนอง' };
@@ -86,7 +89,7 @@ L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 map.on('baselayerchange', e => store.set('thai-road-base', e.name));
 const divIcon = (html, size, cls = '') => L.divIcon({ html, className: cls, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
 const layers = { alts: L.layerGroup().addTo(map), route: L.layerGroup().addTo(map), hz: L.layerGroup().addTo(map), stays: L.layerGroup().addTo(map), pins: L.layerGroup().addTo(map) };
-let markerA = null, markerB = null, homeMarker = null, meMarker = null, carMarker = null, doneLine = null;
+let markerA = null, markerB = null, homeMarker = null, meMarker = null, doneLine = null;
 
 /* ---------- places ---------- */
 const P = { from: null, to: null };
@@ -265,12 +268,6 @@ function prepRoute(rt, idx) {
   for (let k = 0; k < rt.gkm; k += step) rt.samples.push({ km: k, ...pointAt(rt, k) });
   rt.samples.push({ km: rt.gkm, ...pointAt(rt, rt.gkm) });
   rt.thin = []; for (let k = 0; k <= rt.gkm; k += 2) rt.thin.push({ km: k, ...pointAt(rt, k) });
-  // simulated road incidents, stable for the same route
-  const rnd = seeded(Math.round(rt.dist * 10) + rt.coords.length), n = Math.min(3, Math.floor(rt.gkm / 220 + rnd() * 1.6));
-  const ACC = ['รถบรรทุกพลิกคว่ำ ปิด 1 ช่องจราจร', 'รถยนต์ชนท้ายกันหลายคัน การจราจรติดขัด', 'รถกระบะเสียหลักตกข้างทาง เจ้าหน้าที่อยู่ในพื้นที่'];
-  rt.sim = []; for (let i = 0; i < n; i++) { const km = rt.gkm * (0.1 + rnd() * 0.8), acc = rnd() < 0.65;
-    rt.sim.push({ type: acc ? 'accident' : 'work', km, ...pointAt(rt, km), sim: true, title: acc ? 'อุบัติเหตุ' : 'ซ่อมถนน',
-      desc: acc ? ACC[Math.floor(rnd() * ACC.length)] : 'ซ่อมผิวทาง ปิด 1 ช่องจราจร', penalty: acc ? 25 : 10, factor: acc ? 0.45 : 0.65 }); }
   return rt;
 }
 function pointAt(rt, km) {
@@ -307,10 +304,118 @@ function hazardsFor(rt, T0) {
   for (const h of hz.sort((a, b) => a.km - b.km)) { const last = merged.findLast?.(m => m.type === h.type) ?? [...merged].reverse().find(m => m.type === h.type);
     if (last && h.km - last.kmEnd < 45) { last.kmEnd = h.km; if (h.level > last.level) Object.assign(last, { ...h, km: last.km, kmEnd: h.km }); }
     else merged.push({ ...h, kmEnd: h.km }); }
-  if ($('#simInc').checked) merged.push(...rt.sim);
+  merged.push(...(rt.live || []));
   return merged.sort((a, b) => a.km - b.km);
 }
 const score = (rt, hz) => rt.dur + hz.reduce((s, h) => s + h.penalty, 0);
+
+/* ---------- real-time traffic: TomTom, using the viewer's own free key ---------- */
+const TT = { key: store.get('thai-road-tomtom') || '', flow: null };
+const tt = (path, q = '') => `https://api.tomtom.com${path}?key=${encodeURIComponent(TT.key)}${q ? '&' + q : ''}`;
+const TT_CAT = { 1: ['accident', 'อุบัติเหตุ'], 2: ['rain', 'หมอกหนา'], 3: ['danger', 'สภาพถนนอันตราย'], 4: ['rain', 'ฝนตกหนัก'], 5: ['danger', 'ถนนลื่น'],
+  6: ['jam', 'รถติด'], 7: ['work', 'ปิดช่องจราจร'], 8: ['closed', 'ปิดถนน'], 9: ['work', 'ซ่อมถนน'], 10: ['danger', 'ลมแรง'], 11: ['flood', 'น้ำท่วม'], 14: ['accident', 'รถเสีย'] };
+const MAG = ['', 'เล็กน้อย', 'ปานกลาง', 'หนัก', ''];
+const TT_FIELDS = encodeURIComponent('{incidents{type,geometry{type,coordinates},properties{id,iconCategory,magnitudeOfDelay,events{description},startTime,endTime,from,to,length,delay,roadNumbers}}}');
+async function ttRoute(a, b) {
+  const r = await getJSON(tt(`/routing/1/calculateRoute/${a.lat},${a.lon}:${b.lat},${b.lon}/json`,
+    'traffic=true&travelMode=car&routeType=fastest&maxAlternatives=2&instructionsType=text&language=th-TH&computeTravelTimeFor=all'), {}, 25000);
+  if (!r.routes?.length) throw new Error('ไม่พบเส้นทาง');
+  return r.routes.map(rt => { const s = rt.summary, ins = rt.guidance?.instructions || [];
+    return { coords: rt.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude])), dist: s.lengthInMeters / 1000, dur: s.travelTimeInSeconds / 60,
+      trafficDelay: (s.trafficDelayInSeconds || 0) / 60,
+      steps: ins.map((x, i) => ({ text: x.message || 'ตรงไป', km: ((ins[i + 1]?.routeOffsetInMeters ?? s.lengthInMeters) - x.routeOffsetInMeters) / 1000 }))
+        .filter((x, i, arr) => x.km > 0.05 || i === arr.length - 1),
+      via: [...new Set(ins.flatMap(x => x.roadNumbers || []))].slice(0, 4).join(', '), src: 'tomtom' }; });
+}
+// incidents reported right now along a route; replaces earlier ones inside [fromKm, toKm]
+async function loadIncidents(rt, fromKm = 0, toKm = rt.gkm) {
+  const boxes = [];
+  for (let k = fromKm; k < toKm; k += 80) {
+    const pts = rt.thin.filter(p => p.km >= k - 2 && p.km <= Math.min(k + 80, toKm) + 2); if (!pts.length) continue;
+    const la = pts.map(p => p.lat), lo = pts.map(p => p.lon), pad = 0.02;
+    boxes.push([Math.min(...lo) - pad, Math.min(...la) - pad, Math.max(...lo) + pad, Math.max(...la) + pad].map(v => v.toFixed(4)).join(','));
+  }
+  const found = new Map();
+  for (let i = 0; i < boxes.length; i += 4) {
+    const res = await Promise.all(boxes.slice(i, i + 4).map(bb => getJSON(tt('/traffic/services/5/incidentDetails', `bbox=${bb}&fields=${TT_FIELDS}&language=en-GB&timeValidityFilter=present`), {}, 20000)));
+    res.forEach(r => (r.incidents || []).forEach(x => found.set(x.properties.id, x)));
+  }
+  const out = [];
+  for (const x of found.values()) {
+    const g = x.geometry, pts = g.type === 'Point' ? [g.coordinates] : g.coordinates;
+    // nearest point on the route: coarse pass over the 2 km samples, then refine in 100 m steps
+    const ends = [pts[0], pts[pts.length - 1]].map(([lon, lat]) => { const q = { lat, lon }; let best = null;
+      for (const p of rt.thin) { const d = hav(p, q); if (!best || d < best.d) best = { d, km: p.km }; }
+      for (let k = best.km - 1.2; k <= best.km + 1.2; k += 0.1) { const d = hav(pointAt(rt, k), q); if (d < best.d) best = { d, km: clamp(k, 0, rt.gkm) }; }
+      return best; });
+    if (Math.min(ends[0].d, ends[1].d) > 0.3) continue; // nearby road, not this route
+    const pr = x.properties, [type, label] = TT_CAT[pr.iconCategory] || ['danger', 'เหตุบนถนน'];
+    const closed = pr.iconCategory === 8 || pr.magnitudeOfDelay === 4, delay = (pr.delay || 0) / 60;
+    const km = Math.min(ends[0].km, ends[1].km), kmEnd = Math.max(ends[0].km, ends[1].km), p0 = pointAt(rt, km), road = (pr.roadNumbers || []).join(', ');
+    const t = closed ? 'closed' : type;
+    out.push({ id: pr.id, live: true, type: t, km, kmEnd, lat: p0.lat, lon: p0.lon, delay,
+      title: closed ? (type === 'flood' ? 'น้ำท่วม ปิดถนน' : 'ปิดถนน') : label + (t === 'jam' && MAG[pr.magnitudeOfDelay] ? MAG[pr.magnitudeOfDelay] : ''),
+      desc: [road && 'ถนน ' + road, pr.from && pr.to && `${pr.from} → ${pr.to}`, pr.events?.[0]?.description, pr.length && 'ระยะ ' + fmtKm(pr.length / 1000), delay >= 1 && 'ช้าลงประมาณ ' + fmtDur(delay)].filter(Boolean).join(' · '),
+      penalty: closed ? 600 : delay + (type === 'accident' ? 10 : type === 'flood' ? 60 : 0), factor: closed ? 0.1 : [1, .8, .6, .4, .2][pr.magnitudeOfDelay] || .8 });
+  }
+  rt.live = (rt.live || []).filter(h => h.kmEnd < fromKm - 1 || h.km > toKm + 1).concat(out);
+  rt.liveAt = Date.now();
+  return out;
+}
+const flowUrl = () => tt('/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png', 'tileSize=256&thickness=8&t=' + Math.floor(Date.now() / 120000));
+function setFlow(on) {
+  if (on && TT.key) { if (!TT.flow) TT.flow = L.tileLayer(flowUrl(), { maxZoom: 20, maxNativeZoom: 18, opacity: .9, zIndex: 5, attribution: 'การจราจร © TomTom' }).addTo(map); }
+  else { TT.flow?.remove(); TT.flow = null; }
+  $('#tTraffic').setAttribute('aria-pressed', !!TT.flow); store.set('thai-road-flow', !!TT.flow);
+}
+function updateTrafficInfo(err) {
+  $('#ttClear').hidden = !TT.key; $('#ttForm').hidden = !!TT.key; $('#ttHelp').hidden = !!TT.key;
+  $('#ttInfo').textContent = !TT.key ? 'ยังไม่ได้เชื่อมต่อ' : err ? 'อัปเดตไม่สำเร็จ จะลองใหม่อัตโนมัติ'
+    : cur?.liveAt ? `เชื่อมต่อแล้ว · อัปเดต ${fmtClock(cur.liveAt)} · ทุก 3 นาที` : 'เชื่อมต่อแล้ว';
+}
+let tickBusy = false;
+async function trafficTick() {
+  if (!TT.key || !cur || document.hidden || tickBusy) return;
+  tickBusy = true; TT.flow?.setUrl(flowUrl());
+  const km = drive.mode === 'nav' ? cur.cum[drive.idx ?? 0] : 0, before = new Set((cur.live || []).map(h => h.id)), rt = cur;
+  try {
+    await loadIncidents(rt, Math.max(0, km - 1), Math.min(rt.gkm, km + 150));
+    if (rt !== cur) return;
+    curHz = cur.hz = hazardsFor(cur, T0); drawHazards(); renderAlerts(km); updateTrafficInfo();
+    const fresh = curHz.filter(h => h.live && !before.has(h.id) && h.km >= km);
+    fresh.forEach(h => { toast(`เหตุใหม่บนเส้นทาง: ${h.title} อีก ${fmtKm(h.km - km)}`, TYPES[h.type].c); speak(`เหตุใหม่ ${h.title} อีก ${Math.round(h.km - km)} กิโลเมตร`); });
+    if (drive.mode === 'nav' && $('#avoid').checked && fresh.some(h => h.type === 'closed')) rerouteFrom('ถนนข้างหน้าปิด กำลังหาเส้นทางใหม่');
+  } catch (e) { updateTrafficInfo(true); }
+  finally { tickBusy = false; }
+}
+// while navigating, ask for a traffic-aware route from here every 5 minutes
+async function fasterRouteCheck() {
+  if (!TT.key || drive.mode !== 'nav' || !live.last || !cur) return;
+  const left = remainingMin(cur.cum[drive.idx ?? 0]);
+  try { const [best] = await ttRoute(live.last, P.to); const gain = left - best.dur;
+    if (gain >= 5) { if ($('#avoid').checked) rerouteFrom(`พบเส้นทางที่เร็วกว่า ${fmtDur(gain)} เปลี่ยนเส้นทางแล้ว`); else toast(`มีเส้นทางที่เร็วกว่า ${fmtDur(gain)} กด "หาเส้นทาง" เพื่อเปลี่ยน`, 'var(--ok)'); } } catch (e) {}
+}
+function rerouteFrom(msg) {
+  if (!live.last) return; toast(msg, 'var(--warn)'); speak(msg);
+  setPlace('from', { lat: live.last.lat, lon: live.last.lon, name: 'ตำแหน่งปัจจุบัน' }, true); findRoute(true).then(() => { drive.idx = null; });
+}
+setInterval(trafficTick, 3 * 60000); setInterval(fasterRouteCheck, 5 * 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && cur?.liveAt && Date.now() - cur.liveAt > 3 * 60000) trafficTick(); });
+$('#ttSave').onclick = async () => {
+  const k = $('#ttKey').value.trim(), btn = $('#ttSave'); if (!k) { toast('วาง API key ก่อน', 'var(--warn)'); return; }
+  btn.disabled = true; btn.textContent = 'กำลังตรวจสอบ…'; const old = TT.key; TT.key = k;
+  try {
+    await getJSON(tt('/traffic/services/5/incidentDetails', `bbox=100.45,13.70,100.60,13.80&fields=${encodeURIComponent('{incidents{type}}')}`), {}, 15000);
+    store.set('thai-road-tomtom', k); $('#ttKey').value = ''; toast('เชื่อมต่อข้อมูลจราจรเรียลไทม์แล้ว', 'var(--ok)'); setFlow(true); updateTrafficInfo();
+    if (P.from && P.to) findRoute();
+  } catch (e) { TT.key = old; toast(/HTTP 40[13]/.test(e.message) ? 'API key ไม่ถูกต้อง ตรวจว่าคัดลอกมาครบ' : 'ตรวจสอบ key ไม่สำเร็จ ลองอีกครั้ง', 'var(--danger)'); }
+  btn.disabled = false; btn.textContent = 'เชื่อมต่อ';
+};
+$('#ttClear').onclick = () => {
+  TT.key = ''; store.del('thai-road-tomtom'); setFlow(false); routes.forEach(r => { r.live = []; r.liveAt = 0; });
+  if (cur) { curHz = cur.hz = hazardsFor(cur, T0); drawHazards(); renderAlerts(0); } updateTrafficInfo();
+};
+$('#tTraffic').onclick = () => { if (!TT.key) { toast('เชื่อมต่อข้อมูลจราจรเรียลไทม์ก่อน (ในแผงซ้าย)', 'var(--warn)'); $('#ttBox').scrollIntoView({ behavior: 'smooth' }); return; } setFlow(!TT.flow); };
 
 /* ---------- route state ---------- */
 let routes = [], cur = null, curHz = [], T0 = Date.now(), lastPlanKey = '';
@@ -320,27 +425,32 @@ async function findRoute(keepDrive) {
   if (!keepDrive) stopDrive();
   status('กำลังหาเส้นทาง…'); $('#findBtn').disabled = true;
   let src = 'osrm';
-  try { routes = await osrm(P.from, P.to); }
-  catch (e) { routes = graphRoute(P.from, P.to); src = 'graph'; }
+  try { if (!TT.key) throw 0; routes = await ttRoute(P.from, P.to); src = 'tomtom'; }
+  catch (e) { try { routes = await osrm(P.from, P.to); src = 'osrm'; } catch (e2) { routes = graphRoute(P.from, P.to); src = 'graph'; } }
   routes.forEach(prepRoute);
+  let liveOk = null;
+  if (TT.key) { status('กำลังโหลดอุบัติเหตุ รถติด และถนนปิดแบบเรียลไทม์…'); try { await Promise.all(routes.map(r => loadIncidents(r))); liveOk = true; } catch (e) { liveOk = false; } }
   status('กำลังตรวจพยากรณ์อากาศตลอดเส้นทาง…');
   T0 = Date.now();
   try { await fetchWx(routes.flatMap(r => r.samples)); wxOk = true; } catch (e) { wxOk = false; }
   $('#findBtn').disabled = false;
   const msgs = [];
   if (src === 'graph') msgs.push('บริการหาเส้นทางออนไลน์ไม่ตอบสนอง จึงใช้เส้นทางทางหลวงหลักโดยประมาณแทน');
+  if (!TT.key) msgs.push('ยังไม่ได้เชื่อมต่อข้อมูลจราจรเรียลไทม์ จึงยังไม่มีการเตือนอุบัติเหตุ รถติด และถนนปิด');
+  else if (src !== 'tomtom') msgs.push('หาเส้นทางที่คิดรถติดไม่สำเร็จ ใช้เส้นทางปกติแทน');
+  if (liveOk === false) msgs.push('โหลดเหตุบนถนนไม่สำเร็จ จะลองใหม่อัตโนมัติ');
   if (!wxOk) msgs.push('โหลดพยากรณ์อากาศไม่ได้ จึงยังไม่มีการเตือนฝนและน้ำท่วม');
   status(msgs.join(' · '), msgs.length ? 'var(--warn)' : null);
   routes.forEach(r => { r.hz = hazardsFor(r, T0); r.score = score(r, r.hz); });
   const fastest = routes.reduce((a, b) => b.dur < a.dur ? b : a), safest = routes.reduce((a, b) => b.score < a.score ? b : a);
   routes.forEach(r => { r.fast = r === fastest; r.safe = r === safest && safest !== fastest; });
-  selectRoute($('#avoid').checked ? safest : fastest, !keepDrive);
+  selectRoute($('#avoid').checked ? safest : fastest, !keepDrive); updateTrafficInfo();
   if ($('#avoid').checked && safest !== fastest) toast(`เลือกเส้นทางที่เลี่ยงจุดเสี่ยง (ช้ากว่าเส้นทางเร็วสุด ${fmtDur(safest.dur - fastest.dur)})`, 'var(--ok)');
 }
 function selectRoute(rt, fit) {
   cur = rt; curHz = rt.hz;
   drawRoutes(); renderAlts(); renderTrip(0); renderAlerts(0); renderStays(); renderWeather(); drawHazards();
-  $('#simBtn').disabled = $('#navBtn').disabled = false;
+  $('#navBtn').disabled = false;
   if (fit) map.fitBounds(L.latLngBounds(rt.coords), { padding: [40, 40] });
 }
 function drawRoutes() {
@@ -355,14 +465,14 @@ function drawRoutes() {
 function drawHazards() {
   layers.hz.clearLayers();
   for (const h of curHz) { const t = TYPES[h.type];
-    L.marker([h.lat, h.lon], { icon: divIcon(`<div class="mk${h.sim ? ' sim' : ''}" style="--c:${t.c};width:26px;height:26px">${icon(h.type, 16)}</div>`, 26), title: h.title })
-      .bindPopup(`<h3 style="color:${t.c}">${esc(h.title)}${h.sim ? ' <span class="tag" style="--c:var(--muted)">จำลอง</span>' : ''}</h3><p>${esc(h.desc)}</p><p>กม. ${Math.round(h.km)} จากต้นทาง</p>`).addTo(layers.hz);
+    L.marker([h.lat, h.lon], { icon: divIcon(`<div class="mk" style="--c:${t.c};width:26px;height:26px">${icon(h.type, 16)}</div>`, 26), title: h.title })
+      .bindPopup(`<h3 style="color:${t.c}">${esc(h.title)}${h.live ? ' <span class="tag" style="--c:var(--ok)">สด</span>' : ''}</h3><p>${esc(h.desc)}</p><p>กม. ${Math.round(h.km)} จากต้นทาง</p>`).addTo(layers.hz);
   }
 }
 function renderAlts() {
   $('#alts').innerHTML = routes.length < 2 ? '' : routes.map((r, i) => `<button class="alt" data-i="${i}" aria-pressed="${r === cur}">
     <span>เส้นทาง ${i + 1}${r.fast ? '<span class="tag" style="--c:var(--accent)">เร็วที่สุด</span>' : ''}${r.safe ? '<span class="tag" style="--c:var(--ok)">ปลอดภัยกว่า</span>' : ''}</span>
-    <b>${fmtDur(r.dur)}</b><small>${fmtKm(r.dist)}${r.via ? ' · ผ่าน ' + esc(r.via) : ''} · ${r.hz.length ? 'จุดเตือน ' + r.hz.length + ' จุด' : 'ไม่มีจุดเตือน'}</small></button>`).join('');
+    <b>${fmtDur(r.dur)}</b><small>${fmtKm(r.dist)}${r.via ? ' · ผ่าน ' + esc(r.via) : ''} ${r.trafficDelay >= 1 ? ' · รถติด +' + fmtDur(r.trafficDelay) : ''} · ${r.hz.length ? 'จุดเตือน ' + r.hz.length + ' จุด' : 'ไม่มีจุดเตือน'}</small></button>`).join('');
   $('#alts').querySelectorAll('.alt').forEach(b => b.onclick = () => selectRoute(routes[+b.dataset.i]));
 }
 function remainingMin(km) { return cur.dur * (1 - km / cur.gkm); }
@@ -371,6 +481,7 @@ function renderTrip(km, now) {
   const left = cur.gkm - km, scale = cur.dist / cur.gkm;
   $('#sDist').textContent = fmtKm(left * scale);
   $('#sTime').textContent = fmtDur(remainingMin(km));
+  $('#sTime').nextElementSibling.textContent = cur.trafficDelay >= 1 ? `เวลาเดินทาง รวมรถติด +${fmtDur(cur.trafficDelay)}` : 'เวลาเดินทาง';
   $('#sEta').textContent = fmtDayClock((now || Date.now()) + remainingMin(km) * 60000);
   $('#prog').style.width = clamp(km / cur.gkm * 100, 0, 100) + '%';
   if (!renderTrip.sig || renderTrip.sig !== cur) {
@@ -384,8 +495,8 @@ function renderAlerts(km) {
   const list = hazardsAhead(km);
   $('#alertCount').textContent = list.length ? `${list.length} จุด` : '';
   $('#routeAlerts').innerHTML = list.length ? list.map(({ h, d }, i) => { const t = TYPES[h.type];
-    return `<button class="alert" style="--c:${t.c}" data-i="${i}"><span class="ic">${icon(h.type)}</span><span><b>${esc(h.title)}</b>${h.sim ? '<span class="tag" style="--c:var(--muted)">จำลอง</span>' : ''} <span class="km">· ${d < 0.5 ? 'ช่วงนี้' : 'อีก ' + fmtKm(d)}</span><p>${esc(h.desc)}</p></span></button>`; }).join('')
-    : `<div class="empty">${wxOk ? 'ไม่พบฝนตกหนักหรือความเสี่ยงน้ำท่วมตามช่วงเวลาที่จะผ่าน' : 'ยังตรวจสภาพอากาศไม่ได้'}${$('#simInc').checked ? '' : ' (ปิดการแสดงเหตุจำลองอยู่)'}</div>`;
+    return `<button class="alert" style="--c:${t.c}" data-i="${i}"><span class="ic">${icon(h.type)}</span><span><b>${esc(h.title)}</b>${h.live ? '<span class="tag" style="--c:var(--ok)">สด</span>' : ''} <span class="km">· ${d < 0.5 ? 'ช่วงนี้' : 'อีก ' + fmtKm(d)}</span><p>${esc(h.desc)}</p></span></button>`; }).join('')
+    : `<div class="empty">${wxOk ? 'ไม่พบฝนตกหนักหรือความเสี่ยงน้ำท่วมตามช่วงเวลาที่จะผ่าน' : 'ยังตรวจสภาพอากาศไม่ได้'}${TT.key ? ' และไม่มีอุบัติเหตุ รถติด หรือถนนปิดที่รายงานในขณะนี้' : ' (ยังไม่ได้เชื่อมต่อข้อมูลจราจรเรียลไทม์)'}</div>`;
   $('#routeAlerts').querySelectorAll('.alert').forEach(b => b.onclick = () => { const { h } = list[+b.dataset.i]; setFollow(false); map.setView([h.lat, h.lon], 12);
     if (stacked()) $('#wrap').scrollIntoView({ behavior: 'smooth' }); });
 }
@@ -456,31 +567,21 @@ function renderWeather() {
     ${wet.length ? `<div class="warnbox" style="--c:var(--flood)">พยากรณ์ฝนสะสม ${wet.map(([x, i]) => `${new Date(d.time[i] + 'T12:00:00+07:00').toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric' })} ${Math.round(x)} มม.`).join(', ')} เสี่ยงน้ำท่วมขังในที่ต่ำ ติดตามประกาศจาก ปภ. 1784</div>` : ''}`;
 }
 
-/* ---------- drive: simulation & GPS navigation ---------- */
+/* ---------- GPS navigation ---------- */
 const drive = { mode: null, km: 0, t: 0, raf: 0, watch: null, said: new Set(), off: 0, lastReroute: 0, lastPan: 0, wake: null, nextSpawn: 0 };
 let follow = true;
 function setFollow(v) { follow = v; $('#follow').setAttribute('aria-pressed', v); }
-$('#follow').onclick = () => { setFollow(!follow); const m = drive.mode === 'sim' ? carMarker : (live.watch != null ? meMarker : carMarker); if (follow && m) map.setView(m.getLatLng(), Math.max(map.getZoom(), 15)); };
+$('#follow').onclick = () => { setFollow(!follow); const m = live.watch != null ? meMarker : null; if (follow && m) map.setView(m.getLatLng(), Math.max(map.getZoom(), 15)); };
 map.on('dragstart', () => setFollow(false));
-const carIcon = () => divIcon('<div class="car"><svg width="14" height="14" viewBox="0 0 24 24"><path d="M12 2 20 21l-8-4-8 4z" fill="#fff"/></svg></div>', 26);
-function placeCar(km, gpsLL) {
-  const p = pointAt(cur, km), ll = gpsLL || [p.lat, p.lon];
-  if (!carMarker) carMarker = L.marker(ll, { icon: carIcon(), zIndexOffset: 1000, keyboard: false }).addTo(map); else carMarker.setLatLng(ll);
-  const svg = carMarker.getElement()?.querySelector('svg'); if (svg) svg.style.transform = `rotate(${p.hd}deg)`;
-  doneLine?.setLatLngs([...cur.coords.slice(0, p.i + 1), [p.lat, p.lon]]);
-  const now = performance.now();
-  if (follow && now - drive.lastPan > 400) { drive.lastPan = now; map.panTo(ll, { animate: true, duration: .4 }); }
-}
-function factorAt(km) { let f = 1; for (const h of curHz) { const r = h.type === 'rain' || h.type === 'flood' ? 10 : 3; if (km >= h.km - r && km <= (h.kmEnd ?? h.km) + r) f = Math.min(f, h.factor); } return f; }
 function speak(msg) { if (!$('#voice').checked || !window.speechSynthesis) return; const u = new SpeechSynthesisUtterance(msg); u.lang = 'th-TH'; speechSynthesis.speak(u); }
 const banner = $('#banner');
 function updateBanner(km) {
   const next = hazardsAhead(km).find(x => x.d <= 40);
   if (!next) { banner.hidden = true; return; }
   const { h, d } = next, t = TYPES[h.type];
-  const act = h.type === 'flood' ? 'ลดความเร็ว หลีกเลี่ยงช่องทางที่น้ำลึก ห้ามขับฝ่าน้ำไหลแรง' : h.type === 'rain' ? 'เปิดไฟหน้า ลดความเร็ว เว้นระยะห่าง' : 'ลดความเร็ว ระวังเจ้าหน้าที่บนถนน';
+  const act = h.type === 'closed' ? 'ถนนข้างหน้าปิด เตรียมใช้เส้นทางอื่น' : h.type === 'jam' ? 'รถติดข้างหน้า ชะลอความเร็ว' : h.type === 'flood' ? 'ลดความเร็ว หลีกเลี่ยงช่องทางที่น้ำลึก ห้ามขับฝ่าน้ำไหลแรง' : h.type === 'rain' ? 'เปิดไฟหน้า ลดความเร็ว เว้นระยะห่าง' : 'ลดความเร็ว ระวังเจ้าหน้าที่บนถนน';
   banner.hidden = false; banner.style.setProperty('--c', t.c);
-  banner.innerHTML = `<span class="ic">${icon(h.type, 24)}</span><div><b>${d < 0.5 ? 'ช่วงนี้' : 'อีก ' + fmtKm(d)} · ${esc(h.title)}${h.sim ? ' (จำลอง)' : ''}</b><span>${act}</span></div>`;
+  banner.innerHTML = `<span class="ic">${icon(h.type, 24)}</span><div><b>${d < 0.5 ? 'ช่วงนี้' : 'อีก ' + fmtKm(d)} · ${esc(h.title)}${h.delay >= 1 ? ' · ช้าลง ' + fmtDur(h.delay) : ''}</b><span>${act}</span></div>`;
   const id = h.type + Math.round(h.km);
   if (d <= 20 && !drive.said.has(id)) { drive.said.add(id); speak(`${d < 1 ? 'ช่วงนี้' : 'อีก ' + Math.round(d) + ' กิโลเมตร'} ${h.title} ${act}`); }
 }
@@ -493,33 +594,11 @@ $('#voice').onchange = () => { if ($('#voice').checked) speak('เปิดเ�
 function stopDrive() {
   cancelAnimationFrame(drive.raf);
   drive.wake?.release?.().catch(() => {}); Object.assign(drive, { mode: null, watch: null, wake: null });
-  banner.hidden = true; $('#speedBox').hidden = true;
-  $('#simBtn').textContent = 'จำลองการขับ'; $('#simBtn').className = 'btn'; $('#navBtn').textContent = 'นำทางด้วย GPS'; $('#navBtn').className = 'btn';
+  banner.hidden = true;
+  $('#navBtn').textContent = 'นำทางด้วย GPS'; $('#navBtn').className = 'btn';
   if (typeof ensureWatch === 'function') ensureWatch();
 }
-function arrive() { const name = P.to.name; stopDrive(); toast(`ถึง${name}แล้ว`, 'var(--ok)'); speak(`ถึงปลายทาง ${name} แล้ว`); renderTrip(cur.gkm, drive.t || Date.now()); }
-$('#simBtn').onclick = () => {
-  if (drive.mode === 'sim') { stopDrive(); return; }
-  if (!cur) return; stopDrive();
-  Object.assign(drive, { mode: 'sim', km: 0, t: Date.now(), said: new Set(), nextSpawn: 30 });
-  $('#simBtn').textContent = 'หยุดจำลอง'; $('#simBtn').className = 'btn stop'; $('#speedBox').hidden = false; speak('เริ่มจำลองการเดินทาง');
-  setFollow(true); map.setView([cur.coords[0][0], cur.coords[0][1]], 14);
-  if (stacked()) $('#wrap').scrollIntoView({ behavior: 'smooth' });
-  let last = performance.now(), uiAt = 0, simMin = 0;
-  const step = now => {
-    const dt = Math.min((now - last) / 1000, .1); last = now; const dm = dt * +$('#spd').value; simMin += dm;
-    drive.t += dm * 60000; drive.km += cur.gkm / cur.dur * factorAt(drive.km) * dm;
-    if ($('#simInc').checked && simMin > drive.nextSpawn) { drive.nextSpawn += 30;
-      if (Math.random() < 0.12) { const km = drive.km + 15 + Math.random() * 45; if (km < cur.gkm - 5) {
-        const h = { type: 'accident', km, ...pointAt(cur, km), sim: true, title: 'อุบัติเหตุ', desc: 'เกิดเหตุใหม่ระหว่างเดินทาง การจราจรติดขัด', penalty: 25, factor: 0.45 };
-        curHz = [...curHz, h].sort((a, b) => a.km - b.km); drawHazards(); toast(`เกิดอุบัติเหตุใหม่ข้างหน้า อีก ${fmtKm(km - drive.km)} (จำลอง)`, 'var(--danger)'); } } }
-    if (drive.km >= cur.gkm) { drive.km = cur.gkm; placeCar(drive.km); arrive(); return; }
-    placeCar(drive.km); updateBanner(drive.km);
-    if (now - uiAt > 500) { uiAt = now; renderTrip(drive.km, drive.t); renderAlerts(drive.km); $('#clock').textContent = 'เวลาจำลอง ' + fmtDayClock(drive.t); }
-    drive.raf = requestAnimationFrame(step);
-  };
-  drive.raf = requestAnimationFrame(step);
-};
+function arrive() { const name = P.to.name; stopDrive(); toast(`ถึง${name}แล้ว`, 'var(--ok)'); speak(`ถึงปลายทาง ${name} แล้ว`); renderTrip(cur.gkm); }
 function nearestOnRoute(lat, lon) {
   const me = { lat, lon }; let best = { d: Infinity, i: 0 };
   const from = drive.mode === 'nav' && drive.idx != null ? Math.max(0, drive.idx - 200) : 0, to = drive.mode === 'nav' && drive.idx != null ? Math.min(cur.coords.length, drive.idx + 2000) : cur.coords.length;
@@ -531,7 +610,6 @@ $('#navBtn').onclick = () => {
   if (!cur) return;
   if (!navigator.geolocation || !window.isSecureContext) { toast('การนำทางด้วย GPS ต้องเปิดเว็บผ่าน https', 'var(--danger)'); return; }
   stopDrive(); Object.assign(drive, { mode: 'nav', said: new Set(), off: 0, idx: null, accWarned: false });
-  carMarker?.remove(); carMarker = null;
   $('#navBtn').textContent = 'หยุดนำทาง'; $('#navBtn').className = 'btn stop'; setFollow(true); keepAwake();
   if (stacked()) $('#wrap').scrollIntoView({ behavior: 'smooth' });
   toast('เริ่มนำทาง ระบบจะเตือนเมื่อใกล้จุดเสี่ยง'); speak('เริ่มนำทาง');
@@ -675,7 +753,6 @@ ciIn.onchange = () => { if (nearPt) findNearStays(nearPt, nearLabel); };
 /* ---------- controls ---------- */
 $('#findBtn').onclick = () => findRoute();
 $('#avoid').onchange = () => { if (routes.length && !drive.mode) { const pick = $('#avoid').checked ? routes.reduce((a, b) => b.score < a.score ? b : a) : routes.reduce((a, b) => b.dur < a.dur ? b : a); selectRoute(pick); } };
-$('#simInc').onchange = () => { if (!routes.length) return; routes.forEach(r => { r.hz = hazardsFor(r, T0); r.score = score(r, r.hz); }); selectRoute(cur); };
 $('#locate').onclick = () => {
   live.on = !live.on; $('#locate').setAttribute('aria-pressed', live.on);
   if (live.on) { setFollow(true); live.zoomed = false; if (live.last) map.setView([live.last.lat, live.last.lon], 16); toast('ติดตามตำแหน่งสด แตะอีกครั้งเพื่อหยุด'); }
@@ -690,11 +767,11 @@ $('#tRadar').onclick = async () => {
     b.setAttribute('aria-pressed', 'true'); toast(`เรดาร์ฝนล่าสุด ${fmtClock(f.time * 1000)}`); }
   catch (e) { toast('โหลดเรดาร์ฝนไม่ได้ในขณะนี้', 'var(--danger)'); }
 };
-setInterval(() => { if (drive.mode !== 'sim') $('#clock').textContent = fmtDayClock(Date.now()); }, 1000 * 20);
+setInterval(() => { $('#clock').textContent = fmtDayClock(Date.now()); }, 1000 * 20);
 $('#clock').textContent = fmtDayClock(Date.now());
 
 /* ---------- start ---------- */
-renderHome();
+renderHome(); updateTrafficInfo(); if (TT.key && store.get('thai-road-flow') !== false) setFlow(true);
 const saved = store.get('thai-road-places');
 if (saved?.from) setPlace('from', saved.from, true); else if (home) setPlace('from', { ...home, name: 'บ้านของฉัน' }, true);
 if (saved?.to) setPlace('to', saved.to, true);
