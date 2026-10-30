@@ -210,11 +210,12 @@ $('#homeClear').onclick = () => { home = null; store.del('thai-road-home'); rend
 map.on('click', e => {
   const { lat, lng } = e.latlng;
   if (pinMode) { if (setHome(lat, lng)) setPin(false); return; }
-  L.popup().setLatLng(e.latlng).setContent(`<p>${lat.toFixed(5)}, ${lng.toFixed(5)}</p><button class="btn" data-pt="from">เริ่มจากที่นี่</button> <button class="btn" data-pt="to">ไปที่นี่</button>`).openOn(map);
+  L.popup().setLatLng(e.latlng).setContent(`<p>${lat.toFixed(5)}, ${lng.toFixed(5)}</p><button class="btn" data-pt="from">เริ่มจากที่นี่</button> <button class="btn" data-pt="to">ไปที่นี่</button> <button class="btn" data-near>ที่พักใกล้จุดนี้</button>`).openOn(map);
 });
 map.on('popupopen', e => {
   const el = e.popup.getElement(), ll = e.popup.getLatLng();
   el.querySelectorAll('[data-pt]').forEach(b => b.onclick = () => { map.closePopup(); setPlace(b.dataset.pt, { lat: ll.lat, lon: ll.lng, name: `จุดบนแผนที่ ${ll.lat.toFixed(4)}, ${ll.lng.toFixed(4)}` }); });
+  el.querySelectorAll('[data-near]').forEach(b => b.onclick = () => { map.closePopup(); findNearStays({ lat: ll.lat, lon: ll.lng }, 'จุดที่เลือก'); });
   el.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { map.closePopup(); setPlace(b.dataset.go, { lat: home.lat, lon: home.lon, name: 'บ้านของฉัน' }); });
 });
 
@@ -602,6 +603,74 @@ function animateMe(p) {
   };
   live.anim = requestAnimationFrame(frame);
 }
+
+/* ---------- stays near me: real places from OpenStreetMap, tonight's prices on booking sites ---------- */
+const nearLayer = L.layerGroup().addTo(map);
+const ymd = t => new Date(t + H7).toISOString().slice(0, 10);
+// before 6 a.m. tonight's stay started yesterday
+const defaultCheckIn = () => ymd(Date.now() - (new Date(Date.now() + H7).getUTCHours() < 6 ? 864e5 : 0));
+const ciIn = $('#ciDate'), adIn = $('#adults');
+ciIn.value = defaultCheckIn(); ciIn.min = ymd(Date.now() - 864e5);
+const stayOpt = store.get('thai-road-stayopt'); if (stayOpt?.adults) adIn.value = stayOpt.adults;
+adIn.onchange = () => { store.set('thai-road-stayopt', { adults: adIn.value }); if (nearPt) findNearStays(nearPt, nearLabel); };
+const KIND = { hotel: 'โรงแรม', guest_house: 'เกสต์เฮาส์', motel: 'โมเต็ล', hostel: 'โฮสเทล', apartment: 'ห้องพักรายวัน', chalet: 'บ้านพัก/รีสอร์ต' };
+function priceLinks(lat, lon, name) {
+  const a = ciIn.value || defaultCheckIn(), b = ymd(Date.parse(a + 'T12:00:00+07:00') + 864e5), n = +adIn.value || 2, q = name ? encodeURIComponent(name) : '';
+  return {
+    agoda: `https://www.agoda.com/th-th/search?${q ? 'textToSearch=' + q + '&' : ''}latitude=${lat}&longitude=${lon}&checkIn=${a}&checkOut=${b}&los=1&rooms=1&adults=${n}&children=0&sort=priceLowToHigh`,
+    booking: `https://www.booking.com/searchresults.th.html?${q ? 'ss=' + q + '&' : ''}latitude=${lat}&longitude=${lon}&checkin=${a}&checkout=${b}&group_adults=${n}&no_rooms=1&group_children=0&order=price`,
+    gmaps: name ? `https://www.google.com/maps/search/?api=1&query=${q}%20${lat},${lon}` : `https://www.google.com/maps/search/${encodeURIComponent('ที่พัก')}/@${lat},${lon},14z`
+  };
+}
+async function overpass(q) {
+  const body = 'data=' + encodeURIComponent(q), opt = { method: 'POST', body, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
+  try { return await getJSON('https://overpass-api.de/api/interpreter', opt, 25000); }
+  catch (e) { return await getJSON('https://overpass.kumi.systems/api/interpreter', opt, 25000); }
+}
+let nearItems = [], nearPt = null, nearLabel = '';
+async function findNearStays(pt, label) {
+  nearPt = pt; nearLabel = label;
+  const btn = $('#nearBtn'); btn.disabled = true; btn.textContent = 'กำลังค้นหา…';
+  $('#h-near').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  let items = [], radius = 5;
+  try {
+    for (radius of [5, 15]) {
+      const r = await overpass(`[out:json][timeout:25];nwr["tourism"~"^(hotel|guest_house|motel|hostel|apartment|chalet)$"]["name"](around:${radius * 1000},${pt.lat},${pt.lon});out center 80;`);
+      items = (r.elements || []).map(e => { const t = e.tags || {}, lat = e.lat ?? e.center?.lat, lon = e.lon ?? e.center?.lon;
+        return { name: t['name:th'] || t.name, lat, lon, kind: KIND[t.tourism] || 'ที่พัก', stars: t.stars, phone: t.phone || t['contact:phone'] || t['contact:mobile'],
+          price: t.price || t.charge || t['price:room'], web: t.website || t['contact:website'] }; })
+        .filter(h => h.lat != null).map(h => ({ ...h, d: hav(pt, h) })).sort((a, b) => a.d - b.d).slice(0, 20);
+      if (items.length >= 5) break;
+    }
+  } catch (e) { btn.disabled = false; btn.textContent = 'ค้นที่พักรอบตัวฉัน'; toast('ค้นข้อมูลที่พักไม่สำเร็จ ลองอีกครั้ง หรือกดลิงก์ Agoda / Booking ด้านล่าง', 'var(--danger)'); items = []; }
+  btn.disabled = false; btn.textContent = 'ค้นใหม่จากตำแหน่งตอนนี้';
+  nearItems = items; nearLayer.clearLayers();
+  const area = priceLinks(pt.lat.toFixed(5), pt.lon.toFixed(5));
+  $('#nearNote').textContent = `รอบ${label} ${items.length} แห่ง ในรัศมี ${radius} กม.`;
+  $('#nearArea').innerHTML = `<div class="area"><span>ดูราคาคืนนี้ทุกที่พักรอบ${esc(label)} เรียงจากถูกสุด</span>
+    <span><a href="${area.agoda}" target="_blank" rel="noopener">Agoda</a> · <a href="${area.booking}" target="_blank" rel="noopener">Booking.com</a> · <a href="${area.gmaps}" target="_blank" rel="noopener">Google Maps</a></span></div>`;
+  $('#nearList').innerHTML = items.length ? items.map((h, i) => { const L2 = priceLinks(h.lat, h.lon, h.name);
+    return `<div class="stay"><span class="ic" style="--c:var(--accent)">${icon('bed')}</span><span>
+      <b>${esc(h.name)}</b><span class="km">${esc(h.kind)}${h.stars ? ' · ' + esc(h.stars) + ' ดาว' : ''} · ห่าง ${fmtKm(h.d)}</span>
+      ${h.price ? `<p>ราคาที่บันทึกไว้ใน OpenStreetMap: ${esc(h.price)} (อาจไม่เป็นปัจจุบัน)</p>` : ''}
+      ${h.phone ? `<p>โทร <a href="tel:${esc(h.phone.split(/[;,]/)[0].replace(/\s/g, ''))}">${esc(h.phone.split(/[;,]/)[0])}</a></p>` : ''}
+      <p class="links">ราคาคืนนี้: <a href="${L2.agoda}" target="_blank" rel="noopener">Agoda</a> · <a href="${L2.booking}" target="_blank" rel="noopener">Booking.com</a> · <a href="${L2.gmaps}" target="_blank" rel="noopener">Google Maps</a>${h.web ? ` · <a href="${esc(h.web)}" target="_blank" rel="noopener">เว็บที่พัก</a>` : ''} · <button class="linkbtn" data-near-show="${i}">ดูบนแผนที่</button></p>
+    </span></div>`; }).join('')
+    : '<div class="empty">ยังไม่มีที่พักในบริเวณนี้บน OpenStreetMap ลองกดลิงก์ Agoda / Booking ด้านบน ซึ่งมีรายการมากกว่า</div>';
+  $('#nearList').querySelectorAll('[data-near-show]').forEach(b => b.onclick = () => { const h = nearItems[+b.dataset.nearShow]; setFollow(false); map.setView([h.lat, h.lon], 16); h.marker.openPopup(); if (stacked()) $('#wrap').scrollIntoView({ behavior: 'smooth' }); });
+  items.forEach(h => { const L2 = priceLinks(h.lat, h.lon, h.name);
+    h.marker = L.marker([h.lat, h.lon], { icon: divIcon(`<div class="mk" style="--c:var(--accent);width:26px;height:26px">${icon('bed', 15)}</div>`, 26), title: h.name })
+      .bindPopup(`<h3>${esc(h.name)}</h3><p>${esc(h.kind)} · ห่าง ${fmtKm(h.d)}${h.phone ? ` · <a href="tel:${esc(h.phone.split(/[;,]/)[0].replace(/\s/g, ''))}">โทร</a>` : ''}</p><p>ราคาคืนนี้: <a href="${L2.agoda}" target="_blank" rel="noopener">Agoda</a> · <a href="${L2.booking}" target="_blank" rel="noopener">Booking</a></p>`).addTo(nearLayer); });
+  if (items.length) { setFollow(false); map.fitBounds(L.latLngBounds([[pt.lat, pt.lon], ...items.slice(0, 10).map(h => [h.lat, h.lon])]), { padding: [50, 50], maxZoom: 16 }); }
+}
+async function nearMe() {
+  let pt = live.last;
+  if (!pt) { try { pt = await getGPS(); showMe(pt); warnAccuracy(pt.acc); } catch (e) { toast(e.message + ' หรือแตะจุดบนแผนที่แล้วเลือก "ที่พักใกล้จุดนี้"', 'var(--danger)'); return; } }
+  findNearStays(pt, 'ตัวคุณ');
+}
+$('#nearBtn').onclick = nearMe;
+$('#nearStay').onclick = nearMe;
+ciIn.onchange = () => { if (nearPt) findNearStays(nearPt, nearLabel); };
 
 /* ---------- controls ---------- */
 $('#findBtn').onclick = () => findRoute();
