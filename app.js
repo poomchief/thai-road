@@ -109,7 +109,7 @@ function getGPS() {
     if (!window.isSecureContext) return rej(new Error('GPS ใช้ได้เฉพาะเว็บที่เป็น https เท่านั้น'));
     navigator.geolocation.getCurrentPosition(p => res({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy }),
       e => rej(new Error(e.code === 1 ? 'ยังไม่ได้อนุญาตให้ใช้ตำแหน่ง เปิดสิทธิ์ตำแหน่งให้เว็บนี้ในการตั้งค่าเบราว์เซอร์' : 'หาตำแหน่งไม่ได้ ลองอีกครั้งในที่โล่ง')),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
   });
 }
 // iPads without a cellular model have no GPS chip; their Wi-Fi position can be off by kilometres
@@ -117,8 +117,9 @@ function warnAccuracy(acc) {
   if (acc > 1000) toast(`ตำแหน่งคลาดเคลื่อนได้ถึง ${(acc / 1000).toFixed(1)} กม. อุปกรณ์นี้อาจไม่มี GPS (เช่น iPad รุ่น Wi‑Fi) ปักหมุดเองบนแผนที่ หรือเปิด Hotspot จากมือถือ`, 'var(--warn)');
   else if (acc > 200) toast(`ความแม่นยำประมาณ ${Math.round(acc)} ม. ปักหมุดเองถ้ายังไม่ตรง`, 'var(--warn)');
 }
+const meIcon = () => divIcon('<div class="me"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 19 20l-7-4-7 4z" fill="#fff"/></svg></div>', 26);
 function showMe(p) {
-  if (!meMarker) meMarker = L.marker([p.lat, p.lon], { icon: divIcon('<div class="me"></div>', 16), zIndexOffset: 900, keyboard: false }).addTo(map);
+  if (!meMarker) meMarker = L.marker([p.lat, p.lon], { icon: meIcon(), zIndexOffset: 1100, keyboard: false }).addTo(map);
   else meMarker.setLatLng([p.lat, p.lon]);
 }
 
@@ -458,7 +459,7 @@ function renderWeather() {
 const drive = { mode: null, km: 0, t: 0, raf: 0, watch: null, said: new Set(), off: 0, lastReroute: 0, lastPan: 0, wake: null, nextSpawn: 0 };
 let follow = true;
 function setFollow(v) { follow = v; $('#follow').setAttribute('aria-pressed', v); }
-$('#follow').onclick = () => { setFollow(!follow); if (follow && carMarker) map.setView(carMarker.getLatLng(), Math.max(map.getZoom(), 12)); };
+$('#follow').onclick = () => { setFollow(!follow); const m = drive.mode === 'sim' ? carMarker : (live.watch != null ? meMarker : carMarker); if (follow && m) map.setView(m.getLatLng(), Math.max(map.getZoom(), 15)); };
 map.on('dragstart', () => setFollow(false));
 const carIcon = () => divIcon('<div class="car"><svg width="14" height="14" viewBox="0 0 24 24"><path d="M12 2 20 21l-8-4-8 4z" fill="#fff"/></svg></div>', 26);
 function placeCar(km, gpsLL) {
@@ -489,10 +490,11 @@ async function keepAwake() {
 // Safari only lets speech start from a tap, so speak once inside the tap handler
 $('#voice').onchange = () => { if ($('#voice').checked) speak('เปิดเสียงเตือนแล้ว'); };
 function stopDrive() {
-  cancelAnimationFrame(drive.raf); if (drive.watch != null) navigator.geolocation.clearWatch(drive.watch);
+  cancelAnimationFrame(drive.raf);
   drive.wake?.release?.().catch(() => {}); Object.assign(drive, { mode: null, watch: null, wake: null });
   banner.hidden = true; $('#speedBox').hidden = true;
   $('#simBtn').textContent = 'จำลองการขับ'; $('#simBtn').className = 'btn'; $('#navBtn').textContent = 'นำทางด้วย GPS'; $('#navBtn').className = 'btn';
+  if (typeof ensureWatch === 'function') ensureWatch();
 }
 function arrive() { const name = P.to.name; stopDrive(); toast(`ถึง${name}แล้ว`, 'var(--ok)'); speak(`ถึงปลายทาง ${name} แล้ว`); renderTrip(cur.gkm, drive.t || Date.now()); }
 $('#simBtn').onclick = () => {
@@ -527,32 +529,89 @@ $('#navBtn').onclick = () => {
   if (drive.mode === 'nav') { stopDrive(); return; }
   if (!cur) return;
   if (!navigator.geolocation || !window.isSecureContext) { toast('การนำทางด้วย GPS ต้องเปิดเว็บผ่าน https', 'var(--danger)'); return; }
-  stopDrive(); Object.assign(drive, { mode: 'nav', said: new Set(), off: 0, idx: null, zoomed: false });
+  stopDrive(); Object.assign(drive, { mode: 'nav', said: new Set(), off: 0, idx: null, accWarned: false });
+  carMarker?.remove(); carMarker = null;
   $('#navBtn').textContent = 'หยุดนำทาง'; $('#navBtn').className = 'btn stop'; setFollow(true); keepAwake();
   if (stacked()) $('#wrap').scrollIntoView({ behavior: 'smooth' });
-  toast('เริ่มนำทาง ระบบจะเตือนเมื่อใกล้จุดเสี่ยง'); speak('เริ่มนำทาง'); drive.accWarned = false;
-  drive.watch = navigator.geolocation.watchPosition(pos => {
-    const { latitude: lat, longitude: lon } = pos.coords; showMe({ lat, lon });
-    const n = nearestOnRoute(lat, lon); drive.idx = n.i; const km = cur.cum[n.i];
-    const acc = (pos.coords.accuracy || 0) / 1000;
-    if (!drive.accWarned && acc > 1) { drive.accWarned = true; warnAccuracy(acc * 1000); }
-    if (n.d > Math.max(0.35, acc * 1.5)) drive.off++; else drive.off = 0;
-    if (drive.off >= 3 && Date.now() - drive.lastReroute > 45000) {
-      drive.lastReroute = Date.now(); drive.off = 0; toast('ออกนอกเส้นทาง กำลังหาเส้นทางใหม่', 'var(--warn)'); speak('ออกนอกเส้นทาง กำลังหาเส้นทางใหม่');
-      setPlace('from', { lat, lon, name: 'ตำแหน่งปัจจุบัน' }, true); findRoute(true).then(() => { drive.idx = null; }); return;
-    }
-    if (!drive.zoomed) { drive.zoomed = true; map.setView([lat, lon], 17); }
-    placeCar(km, [lat, lon]); updateBanner(km); renderTrip(km); renderAlerts(km);
-    if (cur.gkm - km < 0.15) arrive();
-  }, e => { toast(e.code === 1 ? 'ไม่ได้รับอนุญาตให้ใช้ตำแหน่ง' : 'สัญญาณ GPS ขาดหาย', 'var(--danger)'); if (e.code === 1) stopDrive(); },
-  { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+  toast('เริ่มนำทาง ระบบจะเตือนเมื่อใกล้จุดเสี่ยง'); speak('เริ่มนำทาง');
+  live.zoomed = false; ensureWatch();
+  if (live.last) navFix(live.last);
 };
+function navFix(p) {
+  const n = nearestOnRoute(p.lat, p.lon); drive.idx = n.i; const km = cur.cum[n.i], acc = p.acc / 1000;
+  if (!drive.accWarned && acc > 1) { drive.accWarned = true; warnAccuracy(p.acc); }
+  if (n.d > Math.max(0.35, acc * 1.5)) drive.off++; else drive.off = 0;
+  if (drive.off >= 3 && Date.now() - drive.lastReroute > 45000) {
+    drive.lastReroute = Date.now(); drive.off = 0; toast('ออกนอกเส้นทาง กำลังหาเส้นทางใหม่', 'var(--warn)'); speak('ออกนอกเส้นทาง กำลังหาเส้นทางใหม่');
+    setPlace('from', { lat: p.lat, lon: p.lon, name: 'ตำแหน่งปัจจุบัน' }, true); findRoute(true).then(() => { drive.idx = null; }); return;
+  }
+  doneLine?.setLatLngs(cur.coords.slice(0, n.i + 1));
+  updateBanner(km); renderTrip(km); renderAlerts(km);
+  if (cur.gkm - km < 0.15) arrive();
+}
+
+/* ---------- live location: one GPS watch shared by "my location" and navigation ---------- */
+const live = { on: false, watch: null, last: null, hd: null, anim: 0, circle: null, zoomed: false, errAt: 0 };
+const speedo = $('#speedo');
+function ensureWatch() {
+  const need = live.on || drive.mode === 'nav';
+  if (need && live.watch == null) {
+    if (!navigator.geolocation || !window.isSecureContext) { toast('การติดตามตำแหน่งต้องเปิดเว็บผ่าน https', 'var(--danger)'); return; }
+    live.watch = navigator.geolocation.watchPosition(onFix, onGeoErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+    speedo.hidden = false; speedo.textContent = 'กำลังรอสัญญาณ GPS…';
+  }
+  if (!need && live.watch != null) {
+    navigator.geolocation.clearWatch(live.watch); live.watch = null; speedo.hidden = true;
+    live.circle?.remove(); live.circle = null;
+  }
+}
+function onGeoErr(e) {
+  if (e.code === 1) { toast('ยังไม่ได้อนุญาตให้ใช้ตำแหน่ง เปิดได้ที่ การตั้งค่า → ความเป็นส่วนตัว → บริการหาตำแหน่ง → เว็บไซต์ Safari', 'var(--danger)');
+    live.on = false; $('#locate').setAttribute('aria-pressed', 'false'); if (drive.mode === 'nav') stopDrive(); ensureWatch(); return; }
+  speedo.textContent = 'สัญญาณ GPS อ่อน กำลังค้นหา…';
+  if (Date.now() - live.errAt > 60000) { live.errAt = Date.now(); toast('สัญญาณ GPS ขาดหาย ระบบยังค้นหาต่อ', 'var(--warn)'); }
+}
+function onFix(pos) {
+  const c = pos.coords, p = { lat: c.latitude, lon: c.longitude, acc: c.accuracy || 0, t: pos.timestamp || Date.now() }, prev = live.last;
+  // ignore a coarse fix right after a precise one (Wi-Fi fallback jumps)
+  if (prev && p.acc > 150 && prev.acc < 50 && p.t - prev.t < 10000) return;
+  const moved = prev ? hav(prev, p) : 0, dtH = prev ? Math.max((p.t - prev.t) / 3600000, 1 / 3600) : 0;
+  let kmh = c.speed != null && c.speed >= 0 ? c.speed * 3.6 : prev ? moved / dtH : 0;
+  const jump = kmh > 250; if (jump) kmh = 0; // a GPS jump, not real movement
+  if (c.heading != null && !isNaN(c.heading) && kmh > 4) live.hd = c.heading;
+  else if (prev && moved > 0.015 && !jump) live.hd = bearing(prev, p);
+  live.last = p;
+  showMe(prev || p); animateMe(p);
+  const el = meMarker.getElement()?.querySelector('.me');
+  if (el) { el.classList.toggle('dir', live.hd != null); el.style.setProperty('--hd', (live.hd || 0) + 'deg'); }
+  if (!live.circle) live.circle = L.circle([p.lat, p.lon], { radius: p.acc, color: '#2b72d6', weight: 1, fillOpacity: .1, interactive: false }).addTo(map);
+  else live.circle.setLatLng([p.lat, p.lon]).setRadius(p.acc);
+  speedo.textContent = `${jump ? '–' : Math.round(kmh)} กม./ชม. · แม่นยำ ±${p.acc < 1000 ? Math.round(p.acc) + ' ม.' : (p.acc / 1000).toFixed(1) + ' กม.'}`;
+  if (!live.zoomed) { live.zoomed = true; map.setView([p.lat, p.lon], drive.mode === 'nav' ? 17 : 16); if (live.on) warnAccuracy(p.acc); }
+  if (drive.mode === 'nav') navFix(p);
+}
+// glide the marker between fixes so it moves like a car instead of jumping
+function animateMe(p) {
+  cancelAnimationFrame(live.anim);
+  const a = meMarker.getLatLng(), t0 = performance.now(), dur = 900;
+  const frame = now => {
+    const k = Math.min(1, (now - t0) / dur), ll = [a.lat + (p.lat - a.lat) * k, a.lng + (p.lon - a.lng) * k];
+    meMarker.setLatLng(ll);
+    if (follow && (live.on || drive.mode === 'nav')) map.panTo(ll, { animate: false });
+    if (k < 1) live.anim = requestAnimationFrame(frame);
+  };
+  live.anim = requestAnimationFrame(frame);
+}
 
 /* ---------- controls ---------- */
 $('#findBtn').onclick = () => findRoute();
 $('#avoid').onchange = () => { if (routes.length && !drive.mode) { const pick = $('#avoid').checked ? routes.reduce((a, b) => b.score < a.score ? b : a) : routes.reduce((a, b) => b.dur < a.dur ? b : a); selectRoute(pick); } };
 $('#simInc').onchange = () => { if (!routes.length) return; routes.forEach(r => { r.hz = hazardsFor(r, T0); r.score = score(r, r.hz); }); selectRoute(cur); };
-$('#locate').onclick = async () => { try { const p = await getGPS(); showMe(p); setFollow(false); map.setView([p.lat, p.lon], 14); } catch (e) { toast(e.message, 'var(--danger)'); } };
+$('#locate').onclick = () => {
+  live.on = !live.on; $('#locate').setAttribute('aria-pressed', live.on);
+  if (live.on) { setFollow(true); live.zoomed = false; if (live.last) map.setView([live.last.lat, live.last.lon], 16); toast('ติดตามตำแหน่งสด แตะอีกครั้งเพื่อหยุด'); }
+  ensureWatch();
+};
 let radar = null;
 $('#tRadar').onclick = async () => {
   const b = $('#tRadar');
